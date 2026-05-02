@@ -3,8 +3,10 @@
 # while isolating variables if possible in each step which is easier to revise
 import cv2
 import os
-import easyocr
-import pytesseract
+import itertools
+
+# DEVELOPMENT
+GET_DIGIT = True
 
 # Filtration condition
 MIN_AREA  = 19900
@@ -12,10 +14,16 @@ MIN_RATIO = 0.773
 MAX_RATIO = 0.87
 
 # Text position config
-Y_OFFSET = 15
+TEXT_Y_OFFSET = 15
 
-resource_folder = 'resources'
-target = "wuwa_inventory_system_9.png"
+# Thresholding config
+THRESHOLD_VALUE = 180
+MAX_VALUE = 255
+LEFT_REMAIN_RATIO = 0.87
+TOP_REMAIN_RATIO = 0.79
+
+resource_folder = 'test_cases'
+target = "wuwa_inventory_system_2.png"
 target_path = f'{resource_folder}/{target}'
 
 # Create debug folder if not exist
@@ -97,7 +105,7 @@ for c in contours:
     area = w * h
 
     cv2.rectangle(backup_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-    cv2.putText(backup_img, f'area: {area}', (x, y + Y_OFFSET), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+    cv2.putText(backup_img, f'area: {area}', (x, y + TEXT_Y_OFFSET), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
 # From observation, it show that item grid area > 10000
 cv2.imwrite(f'{attempt_folder}/9_area.png', backup_img)
@@ -112,7 +120,7 @@ for c in contours:
     ratio = w / h
 
     cv2.rectangle(backup_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-    cv2.putText(backup_img, f'ratio: {ratio:.4f}', (x, y + Y_OFFSET), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+    cv2.putText(backup_img, f'ratio: {ratio:.4f}', (x, y + TEXT_Y_OFFSET), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
 # From observation, it show that item grid ratio is around 0.8 to 0.9
 cv2.imwrite(f'{attempt_folder}/10_ratio.png', backup_img)
@@ -165,9 +173,36 @@ for c in contours:
 
 cv2.imwrite(f'{attempt_folder}/13_filtered_by_area_and_ratio.png', backup_img)
 
+if (len(boxes) == 0):
+    print("No box detected after filtration, please adjust the filtration condition")
+    exit()
+
+# Sort boxes by row then column
+semi_y_sorted_boxes = sorted(boxes, key=lambda b: b[1])
+row = []
+row_num = 0
+previous_y = float('-inf')
+
+for box in semi_y_sorted_boxes:
+    x, y, w, h = box
+
+    if (previous_y == float('-inf')):
+        row.append([box])
+        previous_y = y
+    elif(abs(y - previous_y) < h / 2):
+        row[row_num].append(box)
+        previous_y = y
+    else:
+        row_num += 1
+        row.append([box])
+        previous_y = y
+
+sorted_nested_boxes = [sorted(r, key=lambda b: b[0]) for r in row]
+sorted_boxes = itertools.chain.from_iterable(sorted_nested_boxes)
+
 # Stage 2: Image recognition and get number of items from selected boxes
 ICON_HEIGHT_RATIO = 0.8
-for i, box in enumerate(boxes):
+for i, box in enumerate(sorted_boxes):
     x, y, w, h = box
     card = img[y:y+h, x:x+w]
 
@@ -178,33 +213,61 @@ for i, box in enumerate(boxes):
     quantity_img = card[int(h*ICON_HEIGHT_RATIO):h, int(w/2):w]
     cv2.imwrite(f'{attempt_folder}/15_quantity_{i}.png', quantity_img)
 
-    # Stage 3: OCR to get quantity
+    # Stage 3: Template matching to get quantity
     # Eliminate color information since it is not required for text recognition
     gray_quantity = cv2.cvtColor(quantity_img, cv2.COLOR_BGR2GRAY)
 
     # Resize to make the size of number larger
-    enlarged_quantity = cv2.resize(gray_quantity, None, fx=10, fy=10, interpolation=cv2.INTER_CUBIC)
-
-    blurred_quantity = cv2.GaussianBlur(enlarged_quantity, (5, 5), 0)
+    # enlarged_quantity = cv2.resize(gray_quantity, None, fx=10, fy=10, interpolation=cv2.INTER_CUBIC)
     
     # Thresholding to make number more contrast
     # THRESH_BINARY is default which change pixel to predefined maxval if pixel value > threshold
     # Set 180 as threshold, if pixel value > 180 to 255, otherwise set to 0
     # In this case, the number is white, so maxval is set to 255 (white)
-    _, thresh = cv2.threshold(blurred_quantity, 180, 255, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(gray_quantity, THRESHOLD_VALUE, MAX_VALUE, cv2.THRESH_BINARY)
+
+    # Crop out the white card boundary which distort the digit segmentation process
+    H_thresh, W_thresh = thresh.shape[:2]
+    thresh = thresh[0:int(H_thresh * TOP_REMAIN_RATIO), 0:int(W_thresh * LEFT_REMAIN_RATIO)]
     cv2.imwrite(f'{attempt_folder}/16_thresholded_quantity_{i}.png', thresh)
 
+    # Get digit image for template matching
     digit_contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    for c in digit_contours:
-        cv2.drawContours(thresh, c, -1, (0, 255, 0), 2)
-    cv2.imwrite(f'{attempt_folder}/17_digit_contours_{i}.png', thresh)
 
-    # Use easyocr to read number from thresholded image
-    # detail = 1 means returning bonding box, confidence and text else, only return text
-    # reader = easyocr.Reader(['en'])
-    # result = reader.readtext(thresh, allowlist='01234567890', detail=0)
-    # print(i, result)
+    # Sorting contour by x so that the digit is in correct order
+    digit_boxes = [cv2.boundingRect(c) for c in digit_contours]
+    digit_boxes = sorted(digit_boxes, key = lambda b: b[0])
 
-    config = '--psm 7 -c tessedit_char_whitelist=0123456789'
-    result = pytesseract.image_to_string(thresh, config=config)
-    print(i, result.strip())
+    templates = {}
+    for digit in range(10):
+        template_image = cv2.imread(f'digit_templates/{digit}.png', cv2.IMREAD_GRAYSCALE)
+        templates[str(digit)] = template_image
+
+    result_digit = ''
+    preprocessed_digit_boxes = []
+    for j, box in (enumerate(digit_boxes)):
+        x, y, w, h = box
+
+        digit_img = thresh[y:y+h, x:x+w]
+        cv2.imwrite(f'{attempt_folder}/18_digit_{i}_{j}.png', digit_img)
+
+        downscaled = cv2.resize(digit_img, (24, 32), interpolation=cv2.INTER_AREA)
+        cv2.imwrite(f'{attempt_folder}/19_downscaled_digit_{i}_{j}.png', downscaled)
+        preprocessed_digit_boxes.append(downscaled)
+
+    for j, digit_box in enumerate(preprocessed_digit_boxes):
+        best_match = None
+        best_score = float('-inf')
+
+        for digit, template in templates.items():
+            # CCOEFF means correlation coefficient, it measure the similarity of two images
+            # NORMED means normalized
+            score = cv2.matchTemplate(digit_box, template, cv2.TM_CCOEFF_NORMED)[0][0]
+
+            if score > best_score:
+                best_score = score
+                best_match = digit
+
+        result_digit += best_match
+        cv2.imwrite(f'{attempt_folder}/20_matched_digit_{i}_{j}_{best_match}.png', digit_box)
+    print(f"Result digit for box {i}: {result_digit}")
