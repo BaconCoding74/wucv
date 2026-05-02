@@ -4,6 +4,7 @@
 import cv2
 import os
 import easyocr
+import pytesseract
 
 # Filtration condition
 MIN_AREA  = 19900
@@ -193,8 +194,17 @@ for i, box in enumerate(boxes):
     _, thresh = cv2.threshold(blurred_quantity, 180, 255, cv2.THRESH_BINARY)
     cv2.imwrite(f'{attempt_folder}/16_thresholded_quantity_{i}.png', thresh)
 
+    digit_contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for c in digit_contours:
+        cv2.drawContours(thresh, c, -1, (0, 255, 0), 2)
+    cv2.imwrite(f'{attempt_folder}/17_digit_contours_{i}.png', thresh)
+
     # Use easyocr to read number from thresholded image
     # detail = 1 means returning bonding box, confidence and text else, only return text
-    reader = easyocr.Reader(['en'])
-    result = reader.readtext(thresh, allowlist='01234567890', detail=0)
-    print(i, result)
+    # reader = easyocr.Reader(['en'])
+    # result = reader.readtext(thresh, allowlist='01234567890', detail=0)
+    # print(i, result)
+
+    config = '--psm 7 -c tessedit_char_whitelist=0123456789'
+    result = pytesseract.image_to_string(thresh, config=config)
+    print(i, result.strip())
