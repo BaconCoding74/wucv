@@ -20,4 +20,4 @@ for test_case in test_cases:
     print(f'\nTest case: {test_case}')
     for file, input_hash in input_hashes.items():
         distance = input_hash - template_hash
-        print(f'\t{file} perceptual hash error: {distance / 64:.4f}')
+        print(f'\t{file} perceptual hash difference: {distance}')

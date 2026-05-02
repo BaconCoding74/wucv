@@ -1,15 +1,18 @@
 # I do this project to study, so there will be a lot of comments
 # There will be redundant code also because I feel more comfortable to learn 
 # while isolating variables if possible in each step which is easier to revise
+from PIL import Image
+import imagehash
 import cv2
 import os
 import itertools
+
 
 # DEVELOPMENT
 GET_DIGIT = True
 
 # Filtration condition
-MIN_AREA  = 19900
+MIN_AREA  = 15900
 MIN_RATIO = 0.773
 MAX_RATIO = 0.87
 
@@ -22,8 +25,12 @@ MAX_VALUE = 255
 LEFT_REMAIN_RATIO = 0.87
 TOP_REMAIN_RATIO = 0.79
 
+# Image recognition config
+MAX_DIFFERENCE_THRESHOLD = 16
+
+item_icon_folder = 'items_assets/icons'
 resource_folder = 'test_cases'
-target = "wuwa_inventory_system_2.png"
+target = "wuwa_inventory_system_9.png"
 target_path = f'{resource_folder}/{target}'
 
 # Create debug folder if not exist
@@ -45,8 +52,11 @@ img = cv2.resize(img, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 cv2.imwrite(f'{attempt_folder}/1_gray.png', gray)
 
-# Use Canny edge detection to find edges in the image
-edges = cv2.Canny(gray, 40, 120)
+# Use Canny edge detection to find edges in the 
+# Threshold 1 is threshold that used to identify weak edge through pixel gradient
+# Weak edge may kept if it connect strong edge, otherwise it will be discarded
+# Threshold 2 is threshold that used to identify strong edge through pixel gradient
+edges = cv2.Canny(gray, 30, 100)
 cv2.imwrite(f'{attempt_folder}/2_edges.png', edges)
 
 # Create a kernel, it define the shape for dilation and erosion
@@ -218,18 +228,23 @@ for i, box in enumerate(sorted_boxes):
     gray_quantity = cv2.cvtColor(quantity_img, cv2.COLOR_BGR2GRAY)
 
     # Resize to make the size of number larger
-    # enlarged_quantity = cv2.resize(gray_quantity, None, fx=10, fy=10, interpolation=cv2.INTER_CUBIC)
+    enlarged_quantity = cv2.resize(gray_quantity, None, fx=5, fy=5, interpolation=cv2.INTER_CUBIC)
+
+    # Dilation to prrevent digit broken into pieces
+    dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    dilated_quantity = cv2.dilate(enlarged_quantity, dilate_kernel, iterations=1)
+    cv2.imwrite(f'{attempt_folder}/16_dilated_quantity_{i}.png', dilated_quantity)
     
     # Thresholding to make number more contrast
     # THRESH_BINARY is default which change pixel to predefined maxval if pixel value > threshold
     # Set 180 as threshold, if pixel value > 180 to 255, otherwise set to 0
     # In this case, the number is white, so maxval is set to 255 (white)
-    _, thresh = cv2.threshold(gray_quantity, THRESHOLD_VALUE, MAX_VALUE, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(dilated_quantity, THRESHOLD_VALUE, MAX_VALUE, cv2.THRESH_BINARY)
 
     # Crop out the white card boundary which distort the digit segmentation process
     H_thresh, W_thresh = thresh.shape[:2]
     thresh = thresh[0:int(H_thresh * TOP_REMAIN_RATIO), 0:int(W_thresh * LEFT_REMAIN_RATIO)]
-    cv2.imwrite(f'{attempt_folder}/16_thresholded_quantity_{i}.png', thresh)
+    cv2.imwrite(f'{attempt_folder}/17_thresholded_quantity_{i}.png', thresh)
 
     # Get digit image for template matching
     digit_contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -267,7 +282,49 @@ for i, box in enumerate(sorted_boxes):
             if score > best_score:
                 best_score = score
                 best_match = digit
+            
 
         result_digit += best_match
         cv2.imwrite(f'{attempt_folder}/20_matched_digit_{i}_{j}_{best_match}.png', digit_box)
-    print(f"Result digit for box {i}: {result_digit}")
+    
+    # print(f"Result digit for box {i}: {result_digit}")
+
+    # Step 4: Item icon recognition
+    # Convery BGR format (default OpenCV format) to RGB format (default PIL format)
+    icon_img_rgb = cv2.cvtColor(icon_img, cv2.COLOR_BGR2RGB)
+
+    # Do image hashing for perpetual hash later
+    icon_img_hash = imagehash.phash(Image.fromarray(icon_img_rgb))
+
+    # Perpetual hashing
+    icon_files = os.listdir(f'{item_icon_folder}')
+    item_id = None
+    distance = -1
+    closest_distance = -1 # For debugging
+    for file in icon_files:
+        template_icon = Image.open(f'{item_icon_folder}/{file}')
+        template_hash = imagehash.phash(template_icon)
+
+        # Image 
+        distance = (icon_img_hash - template_hash)
+        if distance <= MAX_DIFFERENCE_THRESHOLD:
+            closest_distance = distance
+            item_id = file.split('.')[0]
+            break
+
+        if closest_distance == -1 or distance < closest_distance:
+            closest_distance = distance
+
+    
+    # If not found or there is new image, save the icon image
+    item_name = item_id if item_id is not None else f'unknown_{len(icon_files) + 1}'
+    if item_id is None:
+        print(f'NOT FOUND: box_{i}, new icon named {item_name} created')
+        cv2.imwrite(f'{item_icon_folder}/{item_name}.png', icon_img)
+    else:
+        print(f'SIMILAR F: box_{i}, closest match is {item_id} with closest distance {closest_distance}')
+        cv2.imwrite(f'{item_icon_folder}/{item_name}.png', icon_img)
+        
+    
+    # print(f'Item ID: {item_name}, quantity: {result_digit}')
+        
