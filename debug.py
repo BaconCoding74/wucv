@@ -11,7 +11,7 @@ MIN_RATIO = 0.777
 MAX_RATIO = 0.87
 
 # Normal read image
-img = cv2.imread('resources/wuwa_inventory_system_15.png')
+img = cv2.imread('resources/wuwa_inventory_system_1.png')
 
 # Scaling down, INTER_AREA allow downscaling with less distortion
 img = cv2.resize(img, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
@@ -174,5 +174,36 @@ cv2.imshow('filtration_final', backup_img)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
 
+# Stage 2: Image recognition and get number of items from selected boxes
+ICON_HEIGHT_RATIO = 0.8
+for i, box in enumerate(boxes):
+    x, y, w, h = box
+    card = img[y:y+h, x:x+w]
 
+    # Check if icon and quantity is correctly obtained
+    icon_img = card[0:int(h*ICON_HEIGHT_RATIO), 0:w]
+    cv2.imshow(f'icon_img_{i}', icon_img)
 
+    quantity_img = card[int(h*ICON_HEIGHT_RATIO):h, 0:w]
+    cv2.imshow(f'quantity_img_{i}', quantity_img)
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # Stage 3: OCR to get quantity
+    # Eliminate color information since it is not required for text recognition
+    gray_quantity = cv2.cvtColor(quantity_img, cv2.COLOR_BGR2GRAY)
+
+    # Resize to make the size of number larger
+    enlarged_quantity = cv2.resize(gray_quantity, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    
+    # Thresholding to make number more contrast
+    # THRESH_BINARY is default which change pixel to predefined maxval if pixel value > threshold
+    # Set 180 as threshold, if pixel value > 180 to 255, otherwise set to 0
+    # In this case, the number is white, so maxval is set to 255 (white)
+    _, thresh = cv2.threshold(enlarged_quantity, 180, 255, cv2.THRESH_BINARY)
+    cv2.imshow(f'thresholded_quantity_{i}', thresh)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    
