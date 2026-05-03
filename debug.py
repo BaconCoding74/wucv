@@ -6,6 +6,7 @@ import imagehash
 import cv2
 import os
 import itertools
+import numpy as np
 
 
 # DEVELOPMENT
@@ -26,11 +27,13 @@ LEFT_REMAIN_RATIO = 0.87
 TOP_REMAIN_RATIO = 0.79
 
 # Image recognition config
-MAX_DIFFERENCE_THRESHOLD = 16
+ICON_SIZE = 128
+MIN_ACCEPTABLE_SIMILARITY = 0.7 
+MAX_SIMILARITY = 0.999
 
 item_icon_folder = 'items_assets/icons'
 resource_folder = 'test_cases'
-target = "wuwa_inventory_system_9.png"
+target = "wuwa_inventory_system_20.png"
 target_path = f'{resource_folder}/{target}'
 
 # Create debug folder if not exist
@@ -291,39 +294,58 @@ for i, box in enumerate(sorted_boxes):
 
     # Step 4: Item icon recognition
     # Convery BGR format (default OpenCV format) to RGB format (default PIL format)
-    icon_img_rgb = cv2.cvtColor(icon_img, cv2.COLOR_BGR2RGB)
+    icon_img_scaled = cv2.resize(icon_img, (ICON_SIZE, ICON_SIZE), interpolation=cv2.INTER_AREA)
+    icon_img_gray = cv2.cvtColor(icon_img_scaled, cv2.COLOR_BGR2GRAY)
+    icon_img_edges = cv2.Canny(icon_img_gray, 30, 100)
 
-    # Do image hashing for perpetual hash later
-    icon_img_hash = imagehash.phash(Image.fromarray(icon_img_rgb))
+    ih, iw = icon_img_edges.shape
+
+    clean = np.zeros_like(icon_img_edges)
+
+    for (y, x) in zip(*np.where(icon_img_edges > 0)):
+        # remove pixels near border
+        if x < 5 or x > iw-8 or y < 10 or y > ih-25:
+            continue
+
+        clean[y, x] = 255
+
+    icon_img_contour, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    icon_clone = icon_img_scaled.copy()
+
+    icon_img_contour = [c for c in icon_img_contour if cv2.arcLength(c, False) > 10]
+    all_points = np.vstack(icon_img_contour)
+    x, y, w, h = cv2.boundingRect(all_points)
+    
+    item_only = icon_clone[y:y+h, x:x+w]
+    resized_item = cv2.resize(item_only, (ICON_SIZE, ICON_SIZE), interpolation=cv2.INTER_AREA)
+    
+    cv2.imwrite(f'{attempt_folder}/21_icon_{i}_with_contours.png', resized_item)
+    cv2.imwrite(f'{attempt_folder}/21_icon_clean_boundary_{i}.png', clean)
 
     # Perpetual hashing
     icon_files = os.listdir(f'{item_icon_folder}')
     item_id = None
-    distance = -1
-    closest_distance = -1 # For debugging
-    for file in icon_files:
-        template_icon = Image.open(f'{item_icon_folder}/{file}')
-        template_hash = imagehash.phash(template_icon)
+    highest_similarity = float('-inf')
+    for j, file in enumerate(icon_files):
+        template_icon = cv2.imread(f'{item_icon_folder}/{file}')
 
-        # Image 
-        distance = (icon_img_hash - template_hash)
-        if distance <= MAX_DIFFERENCE_THRESHOLD:
-            closest_distance = distance
-            item_id = file.split('.')[0]
-            break
-
-        if closest_distance == -1 or distance < closest_distance:
-            closest_distance = distance
+        score = cv2.matchTemplate(resized_item, template_icon, cv2.TM_CCOEFF_NORMED)[0][0]
+        print(f'{i} vs {file}, score: {score}')
 
     
     # If not found or there is new image, save the icon image
-    item_name = item_id if item_id is not None else f'unknown_{len(icon_files) + 1}'
-    if item_id is None:
-        print(f'NOT FOUND: box_{i}, new icon named {item_name} created')
-        cv2.imwrite(f'{item_icon_folder}/{item_name}.png', icon_img)
-    else:
-        print(f'SIMILAR F: box_{i}, closest match is {item_id} with closest distance {closest_distance}')
-        cv2.imwrite(f'{item_icon_folder}/{item_name}.png', icon_img)
+    # item_name = item_id if item_id is not None else f'unknown_{len(icon_files) + 1}'
+    # print(f'{item_name}: {result_digit}')
+
+    # if highest_similarity >= MAX_SIMILARITY:
+    #     continue
+
+    # if item_id is None:
+    #     print(f'NOT FOUND: box_{i}, new icon named {item_name} created with similarity {highest_similarity:.4f}')
+    # else:
+    #     print(f'SIMILAR ICON DETECTED: box_{i} is similar to {item_name} with similarity {highest_similarity:.4f}')
+    
+    # cv2.imwrite(f'{item_icon_folder}/{len(icon_files)}_t.png', resized_item)
         
     
     # print(f'Item ID: {item_name}, quantity: {result_digit}')
