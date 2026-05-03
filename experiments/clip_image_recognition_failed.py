@@ -15,9 +15,9 @@ def encode_image(path):
     return features / features.norm(dim=-1, keepdim=True)
 
 reference_images = {
-    "a": "../debug/wuwa_inventory_system_20.png/attempt_85/14_icon_0.png",
-    "b": "../debug/wuwa_inventory_system_20.png/attempt_85/14_icon_1.png",
-    "c": "../debug/wuwa_inventory_system_20.png/attempt_85/14_icon_2.png"
+    "a": "debug/wuwa_inventory_system_20.png/attempt_85/14_icon_0.png",
+    "b": "debug/wuwa_inventory_system_20.png/attempt_85/14_icon_1.png",
+    "c": "debug/wuwa_inventory_system_20.png/attempt_85/14_icon_2.png"
 }
 
 reference_features = {}
@@ -32,6 +32,7 @@ def find_best_match(image_path):
     best_score = -1
 
     for name, ref in reference_features.items():
+        # @ is used for matrix multiplication for cosine similarity
         score = (query @ ref.T).item()   # cosine similarity
 
         if score > best_score:
@@ -43,13 +44,13 @@ def find_best_match(image_path):
 result = []
 for i in range(18):
     start = perf_counter()
-    name, score = find_best_match(f"../items_assets/icons/{i}_i.png")
+    name, score = find_best_match(f"items_assets/icons/{i}_i.png")
     end = perf_counter()
 
     result.append((i, name, score, end - start))
 
 for i, name, score, time in sorted(result, key=lambda x: x[2], reverse=True):
-    print(f"\nTesting ../items_assets/icons/{i}_i.png")
+    print(f"\nTesting items_assets/icons/{i}_i.png")
     print("Prediction:", name)
     print("Score:", score)
     print("Time taken:", time)
