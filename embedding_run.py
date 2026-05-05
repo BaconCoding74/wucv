@@ -123,7 +123,7 @@ def find_item(query_path):
     return best_name, best_score, gap, scores
 
 start = perf_counter()
-name, score, gap, top = find_item("aaaa.png")
+name, score, gap, top = find_item("abc.png")
 end = perf_counter()
 
 print(name, score, gap)
