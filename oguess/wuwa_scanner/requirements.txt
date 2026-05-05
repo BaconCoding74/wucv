@@ -1,0 +1,14 @@
+# WuWa Inventory Scanner — Python Dependencies
+# Install: pip install -r requirements.txt
+
+opencv-python-headless>=4.8
+Pillow>=10.0
+numpy>=1.24
+imagehash>=4.3
+easyocr>=1.7        # lightweight OCR, no Tesseract needed
+rich>=13.0          # pretty terminal output (optional but recommended)
+
+# For the web API (Phase 2)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9

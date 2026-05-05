@@ -16,7 +16,7 @@ from pydantic import BaseModel
 import tempfile, os, shutil
 from pathlib import Path
 
-from oguess.detector import (
+from detector import (
     scan_screenshot, load_dataset, save_dataset,
     register_item, ItemSlot
 )

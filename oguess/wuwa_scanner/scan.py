@@ -10,7 +10,7 @@ import os
 import cv2
 import json
 from pathlib import Path
-from oguess.detector import (
+from detector import (
     scan_screenshot, load_dataset, save_dataset,
     register_item, ItemSlot
 )
