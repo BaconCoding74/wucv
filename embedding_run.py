@@ -94,7 +94,7 @@ class EmbeddingNet(nn.Module):
         return x
 
 model = EmbeddingNet().to(device)
-model.load_state_dict(torch.load("item_recognition_1.pth", map_location=device))
+model.load_state_dict(torch.load("item_recognition_4.pth", map_location=device))
 model.eval()
 
 test_tf = transforms.Compose([
@@ -144,7 +144,23 @@ def find_item(query_path):
 
     return best_name, best_score, gap, scores
 
-imgs = ["abc.png", "aaaa.png", "bbbb.png"]
+imgs = [
+    "abc.png", 
+    "aaaa.png", 
+    "bbbb.png", 
+    "green_star.png", 
+    "purple_star.png", 
+    "blue_star.png", 
+    "t_blue_ball.png", 
+    "t_gold_ball.png",
+    "blue_exp.png",
+    "blue_star.png",
+    "crop_purple_exp.png",
+    "gold_exp.png",
+    "gold_smoke.png",
+    "purple_smoke.png",
+    "green_smoke.png",
+]
 
 
 for img in imgs:
@@ -152,6 +168,8 @@ for img in imgs:
     name, score, gap, top = find_item(img)
     end = perf_counter()
 
+    print(f"Query: {img}")
     print(name, score, gap)
     print(top)
-    print(f"Time taken: {end - start:.4f} seconds")
+    print(f"Time taken: {end - start:.4f} seconds\n")
+    
