@@ -7,6 +7,12 @@ from torchvision import transforms, models
 from torch.utils.data import Dataset, DataLoader
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+if device == "cpu":
+    print("WARNING: CUDA not available, running on CPU!")
+    print(f"  torch version: {torch.__version__}")
+    print(f"  torch CUDA version: {torch.version.cuda}")
+else:
+    print(f"Running on GPU: {torch.cuda.get_device_name(0)}")
 
 tf = transforms.Compose([
     transforms.Resize((160, 160)),
@@ -126,49 +132,57 @@ class EmbeddingNet(nn.Module):
         x = nn.functional.normalize(x, p=2, dim=1)
         return x
 
-
-dataset = TripletItemDataset("datasets")
 # Batch size is 32 because provide average of multiple samples instead of single sample
-loader = DataLoader(dataset, batch_size=32, shuffle=True)
+if __name__ == "__main__":
+    dataset = TripletItemDataset("datasets")
 
-model = EmbeddingNet().to(device)
+    loader = DataLoader(
+        dataset,
+        batch_size=32,
+        shuffle=True,
+        num_workers=4,        # parallel CPU workers for loading
+        pin_memory=True,      # faster CPU→GPU transfer
+        prefetch_factor=2,    # load next batch while GPU is busy
+        persistent_workers=True  # don't restart workers each epoch
+    )
 
-# Margin define minimum distance between anchor-positve and anchor-negative pairs, 
-# else model will be penalized due to loss > 0
-loss_fn = nn.TripletMarginLoss(margin=0.4)
+    model = EmbeddingNet().to(device)
 
-# Define what optimizer to use and learning rate
-# Learning rate is step size when updating weights which affecting the speed of training
-# The algorithm is just different in computing new weights
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    # Margin define minimum distance between anchor-positve and anchor-negative pairs, 
+    # else model will be penalized due to loss > 0
+    loss_fn = nn.TripletMarginLoss(margin=0.4)
 
-for epoch in range(10):
-    model.train()
-    total_loss = 0
+    # Define what optimizer to use and learning rate
+    # Learning rate is step size when updating weights which affecting the speed of training
+    # The algorithm is just different in computing new weights
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
-    for anchor, positive, negative in loader:
-        anchor = anchor.to(device)
-        positive = positive.to(device)
-        negative = negative.to(device)
+    for epoch in range(20):
+        model.train()
+        total_loss = 0
 
-        a = model(anchor)
-        p = model(positive)
-        n = model(negative)
+        for anchor, positive, negative in loader:
+            anchor = anchor.to(device)
+            positive = positive.to(device)
+            negative = negative.to(device)
 
-        loss = loss_fn(a, p, n)
+            a = model(anchor)
+            p = model(positive)
+            n = model(negative)
 
-        # Clean up gradients
-        optimizer.zero_grad()
+            loss = loss_fn(a, p, n)
 
-        # Comptute gradients for all parameter gradient = (d(loss)) / (d(weights))
-        loss.backward()
+            # Clean up gradients
+            optimizer.zero_grad()
 
-        # Update weights for each parameter
-        # formula based on optimizer
-        optimizer.step()
+            # Compute gradients for all parameters
+            loss.backward()
 
-        total_loss += loss.item()
+            # Update weights for each parameter
+            optimizer.step()
 
-    print(f"Epoch {epoch+1}, loss={total_loss:.4f}")
+            total_loss += loss.item()
 
-torch.save(model.state_dict(), "item_recognition_3.pth")
+        print(f"Epoch {epoch+1}, loss={total_loss:.4f}")
+
+    torch.save(model.state_dict(), "item_recognition_4.pth")
