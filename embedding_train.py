@@ -134,7 +134,7 @@ class EmbeddingNet(nn.Module):
 
 # Batch size is 32 because provide average of multiple samples instead of single sample
 if __name__ == "__main__":
-    dataset = TripletItemDataset("datasets")
+    dataset = TripletItemDataset("datasets_new")
 
     loader = DataLoader(
         dataset,
