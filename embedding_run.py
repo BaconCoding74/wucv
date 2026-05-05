@@ -11,8 +11,30 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 tf = transforms.Compose([
     transforms.Resize((160, 160)),
-    transforms.RandomResizedCrop(128, scale=(0.75, 1.0)),
-    transforms.ColorJitter(0.2, 0.2, 0.2),
+    transforms.RandomResizedCrop(128, scale=(0.35, 1.0), ratio=(0.8, 1.25)),
+    transforms.RandomApply([
+        transforms.ColorJitter(
+            # Just changing magnitude of RGB channels
+            brightness=0.3,
+
+            # Washing out or sharpen the edge
+            contrast=0.3,
+            
+            # Averaging value of RGB channels 
+            # gray = avg(R, G, B)
+            # pixel_R = gray + saturation * (original_R - gray)
+            # ...
+            saturation=0.25, 
+
+            # Shift hue a little bit which help when color change a little
+            hue=0.05,
+        ),
+    ], p=0.8),
+    transforms.RandomAffine(
+        degrees=5,
+        translate=(0.08, 0.08),
+        scale=(0.9, 1.15),
+    ),
     transforms.ToTensor(),
 ])
 
@@ -72,7 +94,7 @@ class EmbeddingNet(nn.Module):
         return x
 
 model = EmbeddingNet().to(device)
-model.load_state_dict(torch.load("item_embedding_model.pth", map_location=device))
+model.load_state_dict(torch.load("item_recognition_1.pth", map_location=device))
 model.eval()
 
 test_tf = transforms.Compose([
@@ -122,10 +144,14 @@ def find_item(query_path):
 
     return best_name, best_score, gap, scores
 
-start = perf_counter()
-name, score, gap, top = find_item("abc.png")
-end = perf_counter()
+imgs = ["abc.png", "aaaa.png", "bbbb.png"]
 
-print(name, score, gap)
-print(top)
-print(f"Time taken: {end - start:.4f} seconds")
+
+for img in imgs:
+    start = perf_counter()
+    name, score, gap, top = find_item(img)
+    end = perf_counter()
+
+    print(name, score, gap)
+    print(top)
+    print(f"Time taken: {end - start:.4f} seconds")

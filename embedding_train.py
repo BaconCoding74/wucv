@@ -10,9 +10,30 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 tf = transforms.Compose([
     transforms.Resize((160, 160)),
-    transforms.RandomResizedCrop(128, scale=(0.75, 1.0)),
-    transforms.ColorJitter(0.2, 0.2, 0.2),
-    transforms.GaussianBlur(3),
+    transforms.RandomResizedCrop(128, scale=(0.35, 1.0), ratio=(0.8, 1.25)),
+    transforms.RandomApply([
+        transforms.ColorJitter(
+            # Just changing magnitude of RGB channels
+            brightness=0.3,
+
+            # Washing out or sharpen the edge
+            contrast=0.3,
+            
+            # Averaging value of RGB channels 
+            # gray = avg(R, G, B)
+            # pixel_R = gray + saturation * (original_R - gray)
+            # ...
+            saturation=0.25, 
+
+            # Shift hue a little bit which help when color change a little
+            hue=0.05,
+        ),
+    ], p=0.8),
+    transforms.RandomAffine(
+        degrees=5,
+        translate=(0.08, 0.08),
+        scale=(0.9, 1.15),
+    ),
     transforms.ToTensor(),
 ])
 
@@ -150,4 +171,4 @@ for epoch in range(10):
 
     print(f"Epoch {epoch+1}, loss={total_loss:.4f}")
 
-torch.save(model.state_dict(), "item_recognition_1.pth")
+torch.save(model.state_dict(), "item_recognition_3.pth")
