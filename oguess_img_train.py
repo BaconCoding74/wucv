@@ -6,313 +6,233 @@ from pathlib import Path
 from torchvision import transforms, models
 from torch.utils.data import Dataset, DataLoader
 
-# =============================================================================
-# TWEAK VARIABLES — adjust these to tune training
-# =============================================================================
-
-# --- Data ---
-DATASET_PATH        = "datasets"        # Root folder; subfolders = classes
-SAMPLES_PER_EPOCH   = 5000              # Virtual epoch size (random sampling)
-BATCH_SIZE          = 64               # Larger = more hard pairs per batch
-
-# --- Model ---
-EMBEDDING_DIM       = 128              # Size of output feature vector (64/128/256)
-
-# --- Loss ---
-MARGIN              = 0.3              # Triplet margin; lower = tighter clusters
-
-# --- Optimizer ---
-LEARNING_RATE       = 1e-4             # Initial LR for Adam
-WEIGHT_DECAY        = 1e-4             # L2 regularisation to reduce overfitting
-
-# --- Scheduler ---
-NUM_EPOCHS          = 30              # Total training epochs
-LR_MIN              = 1e-6             # Minimum LR at end of cosine schedule
-
-# --- Augmentation ---
-RESIZE_TO           = 160              # Resize before crop
-CROP_TO             = 128              # Final input resolution
-CROP_SCALE_MIN      = 0.35             # Min scale for RandomResizedCrop
-CROP_SCALE_MAX      = 1.0              # Max scale for RandomResizedCrop
-COLOR_JITTER_PROB   = 0.8              # Probability of applying colour jitter
-BRIGHTNESS          = 0.3
-CONTRAST            = 0.3
-SATURATION          = 0.25
-HUE                 = 0.05
-GRAYSCALE_PROB      = 0.1              # Forces model to learn shape over colour
-AFFINE_DEGREES      = 5
-AFFINE_TRANSLATE    = (0.08, 0.08)
-AFFINE_SCALE        = (0.9, 1.15)
-
-# --- Output ---
-SAVE_PATH           = "item_recognition.pth"
-
-# --- Workers ---
-# Windows does not support forked workers — keep this at 0
-# On Linux/Mac you can raise this to 2-4 for faster data loading
-NUM_WORKERS         = 0
-
-# =============================================================================
-
+# ── Configuration ─────────────────────────────────────────────
+DATASET_PATH    = "datasets_new"
+OUTPUT_PATH     = "item_recognition_oguess_1.pth"
+TOP_K_SAVES     = 3       # number of best checkpoints to keep
+EPOCHS          = 20
+BATCH_SIZE      = 64
+NUM_WORKERS     = 8
+PREFETCH_FACTOR = 4
+LEARNING_RATE   = 1e-4
+TRIPLET_MARGIN  = 0.4
+EMBEDDING_DIM   = 128
+DATASET_SIZE    = 5000
+# ──────────────────────────────────────────────────────────────
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-# ---------------------------------------------------------------------------
-# Augmentation pipeline
-# ---------------------------------------------------------------------------
+if device == "cpu":
+    print("WARNING: CUDA not available, running on CPU!")
+    print(f"  torch version: {torch.__version__}")
+    print(f"  torch CUDA version: {torch.version.cuda}")
+else:
+    print(f"Running on GPU: {torch.cuda.get_device_name(0)}")
 
 tf = transforms.Compose([
-    transforms.Resize((RESIZE_TO, RESIZE_TO)),
-    transforms.RandomResizedCrop(
-        CROP_TO,
-        scale=(CROP_SCALE_MIN, CROP_SCALE_MAX),
-        ratio=(0.8, 1.25),
-    ),
-    transforms.RandomHorizontalFlip(),
+    transforms.Resize((160, 160)),
+    transforms.RandomResizedCrop(128, scale=(0.35, 1.0), ratio=(0.8, 1.25)),
     transforms.RandomApply([
         transforms.ColorJitter(
-            brightness=BRIGHTNESS,
-            contrast=CONTRAST,
-            saturation=SATURATION,
-            hue=HUE,
+            # Just changing magnitude of RGB channels
+            brightness=0.3,
+
+            # Washing out or sharpen the edge
+            contrast=0.3,
+            
+            # Averaging value of RGB channels 
+            # gray = avg(R, G, B)
+            # pixel_R = gray + saturation * (original_R - gray)
+            # ...
+            saturation=0.25, 
+
+            # Shift hue a little bit which help when color change a little
+            hue=0.05,
         ),
-    ], p=COLOR_JITTER_PROB),
-    transforms.RandomGrayscale(p=GRAYSCALE_PROB),
+    ], p=0.8),
     transforms.RandomAffine(
-        degrees=AFFINE_DEGREES,
-        translate=AFFINE_TRANSLATE,
-        scale=AFFINE_SCALE,
+        degrees=5,
+        translate=(0.08, 0.08),
+        scale=(0.9, 1.15),
     ),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225]),
 ])
 
-# Inference transform (no augmentation)
-tf_infer = transforms.Compose([
-    transforms.Resize((CROP_TO, CROP_TO)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225]),
-])
-
-
-# ---------------------------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------------------------
-
-class ItemDataset(Dataset):
-    def __init__(self, root, transform=None):
+class TripletItemDataset(Dataset):
+    def __init__(self, root):
         self.root = Path(root)
-        self.transform = transform or tf
-
-        class_dirs = sorted([p for p in self.root.iterdir() if p.is_dir()])
-        self.label_names = [p.name for p in class_dirs]
-        self.label_to_idx = {n: i for i, n in enumerate(self.label_names)}
-
-        self.samples = []
-        for class_dir in class_dirs:
-            idx = self.label_to_idx[class_dir.name]
-            for img_path in class_dir.glob("*.*"):
-                self.samples.append((img_path, idx))
-
-        print(f"Dataset: {len(self.label_names)} classes, "
-              f"{len(self.samples)} images total")
+        self.classes = [p for p in self.root.iterdir() if p.is_dir()]
+        self.images = {
+            c.name: list(c.glob("*.*"))
+            for c in self.classes
+        }
+        self.labels = list(self.images.keys())
 
     def __len__(self):
-        return SAMPLES_PER_EPOCH
+        return DATASET_SIZE
 
-    def __getitem__(self, _):
-        img_path, label = random.choice(self.samples)
-        img = Image.open(img_path).convert("RGB")
-        return self.transform(img), label
+    def __getitem__(self, idx):
+        anchor_label = random.choice(self.labels)
 
+        positive_candidates = self.images[anchor_label]
+        anchor_path, positive_path = random.sample(positive_candidates, 2)
 
-# ---------------------------------------------------------------------------
-# Embedding network
-# ---------------------------------------------------------------------------
+        negative_label = random.choice([l for l in self.labels if l != anchor_label])
+        negative_path = random.choice(self.images[negative_label])
+
+        anchor = tf(Image.open(anchor_path).convert("RGB"))
+        positive = tf(Image.open(positive_path).convert("RGB"))
+        negative = tf(Image.open(negative_path).convert("RGB"))
+
+        return anchor, positive, negative
 
 class EmbeddingNet(nn.Module):
+    # Embedding_dim defined the length of output vector
+    # The reason not 1 is because what we need is features of image, not label
+    # The reason why is 128 is because it is sufficient to capture features of images
     def __init__(self, embedding_dim=EMBEDDING_DIM):
         super().__init__()
+        
+        # Use pretrained mobilenet_v3_small because it works well in extracting features
+        # even it does not know our game assets
         base = models.mobilenet_v3_small(
             weights=models.MobileNet_V3_Small_Weights.DEFAULT
         )
+
+        # There is base.features and base.classifier
+        # base.features provide visual feature map (What we need)
+        # base.classifier provide label prediction
+        # base.features produce (B, C, H, W) 
+        # where B = batch size, C = channels, H = height, W = width
+        # Imagine C is features of image, H and W are spatial dimensions for these images
+        # Normally size of input image will be reduced through downsampling
+        # For mobilenet_v3_small the C = 576
         self.features = base.features
+
+        # Reduce spatial dimensions to 1x1, so output is (B, C, 1, 1)
         self.pool = nn.AdaptiveAvgPool2d(1)
+
+        # Move through layers
+        # From ChatGPT it shows that (need verification)
+        # The input of first layer is output channel of mobilenet_v3_small
+        # The reason we need to train layer again because pretrain layer only extract features
+        # Now we need layer to learn how to use these features
         self.embedding = nn.Sequential(
+            # Combine extracted features and reassign the weights
             nn.Linear(576, 256),
-            nn.BatchNorm1d(256),
+
+            # RELU breaks linearity to allow model to learn complex patterns by introducing rules below
+            # If input > 0, output = input
+            # If input <= 0, output = 0
+            # Output generated is based on the conditon
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, embedding_dim),
+
+            # Same as first layer
+            nn.Linear(256, embedding_dim)
         )
 
+    # Will be called automatically when we call model(input)
     def forward(self, x):
+        # Extract features through mobilenet_v3_small
         x = self.features(x)
+
+        # Flatten from (B, C, 1, 1) to (B, C)
+        # Ex: [[0.1, 0.2, ..., 0.5]] to [0.1, 0.2, ..., 0.5]
         x = self.pool(x).flatten(1)
+
+        # Passing defined layers
         x = self.embedding(x)
-        return nn.functional.normalize(x, p=2, dim=1)
+
+        # Normalize so the distance of anchor-positive and anchor-negative based on angle instead of both magnitude and angle
+        x = nn.functional.normalize(x, p=2, dim=1)
+        return x
 
 
-# ---------------------------------------------------------------------------
-# Online hard triplet mining loss
-# ---------------------------------------------------------------------------
+def save_top_k(checkpoints, model, epoch, loss, k, base_path):
+    # checkpoints is a list of (loss, epoch, filepath) sorted by loss ascending (lower is better)
+    # Build the checkpoint filename for this epoch
+    path = Path(base_path)
+    ckpt_path = path.parent / f"{path.stem}_epoch{epoch+1}_loss{loss:.4f}.pth"
 
-def hard_triplet_loss(embeddings, labels, margin=MARGIN):
-    dist = torch.cdist(embeddings, embeddings, p=2)
+    # Save current model to disk
+    torch.save(model.state_dict(), ckpt_path)
+    print(f"  Checkpoint saved: {ckpt_path.name}")
 
-    loss_sum = torch.tensor(0.0, device=embeddings.device, requires_grad=True)
-    valid = 0
+    # Add to tracked list
+    checkpoints.append((loss, epoch, ckpt_path))
 
-    for i in range(len(labels)):
-        same = (labels == labels[i])
-        same[i] = False
-        diff = (labels != labels[i])
+    # Sort by loss ascending so index 0 = best (lowest loss)
+    checkpoints.sort(key=lambda x: x[0])
 
-        if same.sum() == 0 or diff.sum() == 0:
-            continue
+    # If we have more than k checkpoints, delete the worst one (highest loss = last in list)
+    if len(checkpoints) > k:
+        _, _, worst_path = checkpoints.pop()
+        if worst_path.exists():
+            worst_path.unlink()
+            print(f"  Removed worse checkpoint: {worst_path.name}")
 
-        hardest_pos = dist[i][same].max()
-        hardest_neg = dist[i][diff].min()
-
-        triplet_loss = torch.clamp(hardest_pos - hardest_neg + margin, min=0.0)
-        loss_sum = loss_sum + triplet_loss
-        valid += 1
-
-    return loss_sum / max(valid, 1)
+    return checkpoints
 
 
-# ---------------------------------------------------------------------------
-# Inference helper
-# ---------------------------------------------------------------------------
-
-class ImageIdentifier:
-    """
-    Build a gallery of known embeddings, then identify query images by
-    nearest neighbour in embedding space.
-
-    Usage:
-        identifier = ImageIdentifier("item_recognition.pth", "datasets")
-        identifier.build_gallery()
-        results = identifier.identify("query.jpg")
-        for label, score in results:
-            print(f"{label}: {score:.3f}")
-    """
-    def __init__(self, model_path, dataset_root):
-        self.model = EmbeddingNet().to(device)
-        self.model.load_state_dict(torch.load(model_path, map_location=device))
-        self.model.eval()
-        self.dataset_root = Path(dataset_root)
-        self.gallery_embeddings = None
-        self.gallery_labels = []
-
-    @torch.no_grad()
-    def _embed(self, img_path):
-        img = Image.open(img_path).convert("RGB")
-        tensor = tf_infer(img).unsqueeze(0).to(device)
-        return self.model(tensor)
-
-    def build_gallery(self, samples_per_class=5):
-        all_embeddings = []
-        all_labels = []
-        for class_dir in sorted(self.dataset_root.iterdir()):
-            if not class_dir.is_dir():
-                continue
-            imgs = list(class_dir.glob("*.*"))[:samples_per_class]
-            if not imgs:
-                continue
-            class_embs = torch.cat([self._embed(p) for p in imgs], dim=0)
-            mean_emb = nn.functional.normalize(
-                class_embs.mean(dim=0, keepdim=True), p=2, dim=1
-            )
-            all_embeddings.append(mean_emb)
-            all_labels.append(class_dir.name)
-
-        self.gallery_embeddings = torch.cat(all_embeddings, dim=0)
-        self.gallery_labels = all_labels
-        print(f"Gallery built: {len(all_labels)} classes")
-
-    @torch.no_grad()
-    def identify(self, img_path, top_k=3):
-        if self.gallery_embeddings is None:
-            raise RuntimeError("Call build_gallery() first.")
-        query = self._embed(img_path)
-        sims = (self.gallery_embeddings @ query.T).squeeze(1)
-        top = sims.topk(min(top_k, len(self.gallery_labels)))
-        return [(self.gallery_labels[i], sims[i].item())
-                for i in top.indices.tolist()]
-
-
-# ---------------------------------------------------------------------------
-# Entry point — required on Windows to avoid multiprocessing crash
-# ---------------------------------------------------------------------------
-
+# Batch size is 32 because provide average of multiple samples instead of single sample
 if __name__ == "__main__":
-    print(f"Using device: {device}")
-    if device == "cpu":
-        print(
-            "\n  WARNING: Running on CPU. Training will be very slow.\n"
-            "  To enable GPU, install the CUDA build of PyTorch:\n"
-            "  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121\n"
-            "  (replace cu121 with your CUDA version — check with: nvidia-smi)\n"
-        )
+    dataset = TripletItemDataset(DATASET_PATH)
 
-    dataset = ItemDataset(DATASET_PATH)
     loader = DataLoader(
         dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        num_workers=NUM_WORKERS,
-        pin_memory=(device == "cuda"),
+        num_workers=NUM_WORKERS,         # parallel CPU workers for loading
+        pin_memory=True,                 # faster CPU→GPU transfer
+        prefetch_factor=PREFETCH_FACTOR, # load next batch while GPU is busy
+        persistent_workers=True          # don't restart workers each epoch
     )
 
     model = EmbeddingNet().to(device)
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
-    )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=NUM_EPOCHS, eta_min=LR_MIN
-    )
 
-    best_loss = float("inf")
+    # Margin define minimum distance between anchor-positve and anchor-negative pairs, 
+    # else model will be penalized due to loss > 0
+    loss_fn = nn.TripletMarginLoss(margin=TRIPLET_MARGIN)
 
-    for epoch in range(NUM_EPOCHS):
+    # Define what optimizer to use and learning rate
+    # Learning rate is step size when updating weights which affecting the speed of training
+    # The algorithm is just different in computing new weights
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+    # Tracks the top K checkpoints as (loss, epoch, filepath)
+    checkpoints = []
+
+    for epoch in range(EPOCHS):
         model.train()
-        total_loss = 0.0
-        batches = 0
+        total_loss = 0
 
-        for images, labels in loader:
-            images = images.to(device)
-            labels = labels.to(device)
+        for anchor, positive, negative in loader:
+            anchor = anchor.to(device)
+            positive = positive.to(device)
+            negative = negative.to(device)
 
-            embeddings = model(images)
-            loss = hard_triplet_loss(embeddings, labels)
+            a = model(anchor)
+            p = model(positive)
+            n = model(negative)
 
+            loss = loss_fn(a, p, n)
+
+            # Clean up gradients
             optimizer.zero_grad()
+
+            # Compute gradients for all parameters
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            # Update weights for each parameter
             optimizer.step()
 
             total_loss += loss.item()
-            batches += 1
 
-        scheduler.step()
-        avg_loss = total_loss / max(batches, 1)
-        lr_now = scheduler.get_last_lr()[0]
-        print(f"Epoch {epoch+1:>3}/{NUM_EPOCHS}  loss={avg_loss:.4f}  lr={lr_now:.2e}")
+        print(f"Epoch {epoch+1}, loss={total_loss:.4f}")
 
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            torch.save(model.state_dict(), SAVE_PATH)
-            print(f"  ✓ Saved new best model (loss={best_loss:.4f})")
+        # After each epoch, check if this is one of the top K lowest losses and save if so
+        checkpoints = save_top_k(checkpoints, model, epoch, total_loss, TOP_K_SAVES, OUTPUT_PATH)
 
-    print(f"\nDone. Best loss: {best_loss:.4f}  →  {SAVE_PATH}")
-
-    # Uncomment to test inference after training:
-    # identifier = ImageIdentifier(SAVE_PATH, DATASET_PATH)
-    # identifier.build_gallery()
-    # results = identifier.identify("query.jpg")
-    # for label, score in results:
-    #     print(f"  {label}: {score:.3f}")
+    # Print final top K summary
+    print(f"\nTop {TOP_K_SAVES} checkpoints:")
+    for rank, (loss, epoch, path) in enumerate(checkpoints, 1):
+        print(f"  #{rank} Epoch {epoch+1} — loss={loss:.4f} → {path.name}")
