@@ -1,18 +1,9 @@
 import random
-import torch
 import torch.nn as nn
 from PIL import Image
 from pathlib import Path
 from torchvision import transforms, models
-from torch.utils.data import Dataset, DataLoader
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-if device == "cpu":
-    print("WARNING: CUDA not available, running on CPU!")
-    print(f"  torch version: {torch.__version__}")
-    print(f"  torch CUDA version: {torch.version.cuda}")
-else:
-    print(f"Running on GPU: {torch.cuda.get_device_name(0)}")
+from torch.utils.data import Dataset
 
 tf = transforms.Compose([
     transforms.Resize((160, 160)),
@@ -131,58 +122,3 @@ class EmbeddingNet(nn.Module):
         # Normalize so the distance of anchor-positive and anchor-negative based on angle instead of both magnitude and angle
         x = nn.functional.normalize(x, p=2, dim=1)
         return x
-
-# Batch size is 32 because provide average of multiple samples instead of single sample
-if __name__ == "__main__":
-    dataset = TripletItemDataset("datasets_new")
-
-    loader = DataLoader(
-        dataset,
-        batch_size=32,
-        shuffle=True,
-        num_workers=4,        # parallel CPU workers for loading
-        pin_memory=True,      # faster CPU→GPU transfer
-        prefetch_factor=2,    # load next batch while GPU is busy
-        persistent_workers=True  # don't restart workers each epoch
-    )
-
-    model = EmbeddingNet().to(device)
-
-    # Margin define minimum distance between anchor-positve and anchor-negative pairs, 
-    # else model will be penalized due to loss > 0
-    loss_fn = nn.TripletMarginLoss(margin=0.4)
-
-    # Define what optimizer to use and learning rate
-    # Learning rate is step size when updating weights which affecting the speed of training
-    # The algorithm is just different in computing new weights
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-
-    for epoch in range(20):
-        model.train()
-        total_loss = 0
-
-        for anchor, positive, negative in loader:
-            anchor = anchor.to(device)
-            positive = positive.to(device)
-            negative = negative.to(device)
-
-            a = model(anchor)
-            p = model(positive)
-            n = model(negative)
-
-            loss = loss_fn(a, p, n)
-
-            # Clean up gradients
-            optimizer.zero_grad()
-
-            # Compute gradients for all parameters
-            loss.backward()
-
-            # Update weights for each parameter
-            optimizer.step()
-
-            total_loss += loss.item()
-
-        print(f"Epoch {epoch+1}, loss={total_loss:.4f}")
-
-    torch.save(model.state_dict(), "item_recognition_4.pth")

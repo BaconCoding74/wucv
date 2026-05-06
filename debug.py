@@ -2,7 +2,6 @@
 # There will be redundant code also because I feel more comfortable to learn 
 # while isolating variables if possible in each step which is easier to revise
 from PIL import Image
-import imagehash
 import cv2
 import os
 import itertools
