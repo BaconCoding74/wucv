@@ -8,11 +8,11 @@ from torch.utils.data import Dataset, DataLoader
 
 # ── Configuration ─────────────────────────────────────────────
 DATASET_PATH    = "datasets_new"
-OUTPUT_PATH     = "item_recognition_oguess_1.pth"
+OUTPUT_PATH     = "item_recognition_oguess_3.pth"
 TOP_K_SAVES     = 3       # number of best checkpoints to keep
-EPOCHS          = 20
+EPOCHS          = 100
 BATCH_SIZE      = 64
-NUM_WORKERS     = 8
+NUM_WORKERS     = 16
 PREFETCH_FACTOR = 4
 LEARNING_RATE   = 1e-4
 TRIPLET_MARGIN  = 0.4
