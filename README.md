@@ -11,7 +11,7 @@ Capture frame from Wuthering Wave application
 -> Perform item icon recognition with baseline DINOv2
 -> Create new item if the item is new while update only quantity if item exist (Currently no DB exist as currently is still testing the capability to identity item)
 
-## Current progression
+## Current progression (Stagnant)
 Currently this project is still in experimentation stage as my friend cannot provide me the dataset I want for feature testing and I don't plan to install Wuthering Wave also because of my limited storage space. However, currently the tool can work on Windows to capture the screen automatically and identify.
 
 ## Limitation / Challenges Right Now
