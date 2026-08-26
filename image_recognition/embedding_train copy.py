@@ -40,7 +40,7 @@ if __name__ == "__main__":
     # The algorithm is just different in computing new weights
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
-    for epoch in range(20):
+    for epoch in range(1):
         model.train()
         total_loss = 0
 
@@ -48,25 +48,9 @@ if __name__ == "__main__":
             anchor = anchor.to(device)
             positive = positive.to(device)
             negative = negative.to(device)
+            
+            print("Batch loaded:")
+            print("\tanchor.shape:", anchor.shape)
+            print("\tpositive.shape:", positive.shape)
+            print("\tnegative.shape:", negative.shape)
 
-            a = model(anchor)
-            p = model(positive)
-            n = model(negative)
-
-            loss = loss_fn(a, p, n)
-
-            # Clean up gradients
-            optimizer.zero_grad()
-
-            # Compute gradients for all parameters
-            loss.backward()
-
-            # Update weights for each parameter
-            optimizer.step()
-
-            total_loss += loss.item()
-
-        print(f"Epoch {epoch+1}, loss={total_loss:.4f}")
-
-    name = f"item_recognition_{irc.MODEL_NEWNAME if irc.MODEL_NEWNAME else len(os.listdir(irc.DATASETS_PATH))}_epoch{epoch+1}_loss{total_loss:.4f}"
-    torch.save(model.state_dict(), f"{irc.DATASETS_PATH}/{name}.pth")

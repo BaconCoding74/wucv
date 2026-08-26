@@ -5,7 +5,23 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "imagehash>=4.3.2",
+    "mss>=10.2.0",
     "opencv-python>=4.13.0.92",
+    "psutil>=7.2.2",
+    "pyside6>=6.11.1",
+    "pywin32>=312",
+    "scikit-image>=0.26.0",
+    "streamlit>=1.61.1",
     "torch>=2.11.0",
     "torchvision>=0.26.0",
+    "transformers>=5.15.0",
 ]
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cu130"
+name = "pytorch-cu130"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }

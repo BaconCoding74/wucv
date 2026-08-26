@@ -1,1 +1,5 @@
 debug/
+inputs/
+.venv/
+__pycache__/
+temp/

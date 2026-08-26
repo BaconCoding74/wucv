@@ -1,5 +1,6 @@
 import random
 import torch.nn as nn
+import ir_constants as irc
 from PIL import Image
 from pathlib import Path
 from torchvision import transforms, models
@@ -34,6 +35,8 @@ tf = transforms.Compose([
     transforms.ToTensor(),
 ])
 
+
+
 class TripletItemDataset(Dataset):
     def __init__(self, root):
         self.root = Path(root)
@@ -61,7 +64,66 @@ class TripletItemDataset(Dataset):
         negative = tf(Image.open(negative_path).convert("RGB"))
 
         return anchor, positive, negative
+class HardTripletItemDataset(TripletItemDataset):
+    def __init__(self, root):
+        super().__init__(root)
 
+        self.similar_items = {
+            "flower_petal": 3,
+            "pentagon": 4,
+            "star": 5,
+            "yellow_star": 3,
+            "yoyo": 3,
+            "mask": 3,
+        }
+
+        self.similar_labels = {}
+        self.other_labels = {}
+
+        for label in self.similar_items.keys():
+            if label not in self.labels:
+                raise ValueError(f"Label '{label}' specified in similar_items not found in dataset.")
+
+
+            self.similar_labels[label] = [
+                l for l in self.labels if l.startswith(label) and l != label
+            ]
+
+            self.other_labels[label] = [
+                l for l in self.labels if not l.startswith(label) and l != label
+            ]
+
+    def __getitem__(self, idx):
+        anchor_label = random.choice(self.labels)
+
+        positive_candidates = self.images[anchor_label]
+        positive_paths = random.sample(positive_candidates, irc.MODEL_NUM_P_IMAGE + 1)
+        anchor_path, positive_paths = positive_paths[0], positive_paths[1:]
+
+        base_label = anchor_label.rsplit('_', 1)[0]
+
+        similar_negative_candidates = self.similar_labels.get(base_label, [])
+        other_negative_candidates = self.other_labels.get(base_label, [])
+        
+        negative_paths = []
+        for i in range(irc.MODEL_NUM_N_IMAGE):
+            if len(similar_negative_candidates) > 0 and random.random() < 0.7:
+                negative_label = random.choice(similar_negative_candidates)
+                similar_negative_candidates.remove(negative_label)
+
+            else:
+                negative_label = random.choice(other_negative_candidates)
+                other_negative_candidates.remove(negative_label)
+            
+            negative_paths.append(random.choice(self.images[negative_label]))
+
+        anchor = tf(Image.open(anchor_path).convert("RGB"))
+        positives = [tf(Image.open(p).convert("RGB")) for p in positive_paths]
+        negatives = [tf(Image.open(n).convert("RGB")) for n in negative_paths]
+
+        return anchor, positives, negatives
+
+        
 class EmbeddingNet(nn.Module):
     # Embedding_dim defined the length of output vector
     # The reason not 1 is because what we need is features of image, not label
@@ -122,3 +184,14 @@ class EmbeddingNet(nn.Module):
         # Normalize so the distance of anchor-positive and anchor-negative based on angle instead of both magnitude and angle
         x = nn.functional.normalize(x, p=2, dim=1)
         return x
+    
+class HardTripletLossEmbeddingNet(EmbeddingNet):
+    def __init__(self, embedding_dim=128):
+        super().__init__(embedding_dim)
+
+    def compute_loss(self, device, anchor, positives, negatives):
+        anchor_emb = super().forward(anchor.to(device))
+        positive_embs = [super().forward(p.to(device)) for p in positives]
+        negative_embs = [super().forward(n.to(device)) for n in negatives]
+
+        return anchor_emb, positive_embs, negative_embs

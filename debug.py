@@ -50,6 +50,8 @@ for i, test_case in enumerate(os.listdir(resource_folder), 1):
 
     # Scaling down, INTER_AREA allow downscaling with less distortion
     img = cv2.resize(img, None, fx=0.6, fy=0.6, interpolation=cv2.INTER_AREA)
+    height, width = img.shape[:2]
+    print(height, width)
 
     # Reduce complexity by converting to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)

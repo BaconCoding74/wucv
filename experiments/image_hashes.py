@@ -1,5 +1,8 @@
 from PIL import Image
 import imagehash
+import os
+
+print(os.getcwd())
 
 def compute_hash_distance(path1, path2):
     img1 = Image.open(path1)

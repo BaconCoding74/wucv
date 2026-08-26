@@ -60,15 +60,3 @@ def find_item(query_path):
     gap = best_score - second_score
 
     return best_name, best_score, gap, scores
-
-
-for img in os.listdir(irc.TEST_INPUTS_PATH):
-    start = perf_counter()
-    name, score, gap, top = find_item(f"{irc.TEST_INPUTS_PATH}/{img}")
-    end = perf_counter()
-
-    print(f"Query: {img}")
-    print(name, score, gap)
-    print(top)
-    print(f"Time taken: {end - start:.4f} seconds\n")
-    
